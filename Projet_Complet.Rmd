@@ -1,0 +1,1226 @@
+---
+title: "Projet Mathématiques pour le Big Data — Optimisation, Pseudo-inverse, ACP, AFC"
+author: "ESGI 5A BD"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    latex_engine: xelatex
+    fig_caption: true
+    keep_tex: false
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    theme: cosmo
+    highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      fig.width = 8, fig.height = 6, fig.align = "center")
+```
+
+\newpage
+
+# Exercice 1 — Moindres carrés
+
+## Données et transformation logarithmique
+
+On dispose des données suivantes sur la revente d'un article :
+
+```{r ex1-donnees}
+t <- c(0, 1, 2, 3, 4, 5, 6)
+Xt <- c(90, 73.8, 60, 49.5, 40.5, 33, 27)
+n <- length(t)
+
+# Affichage du tableau
+knitr::kable(data.frame(t = t, Xt = Xt),
+             col.names = c("t (années)", "Xt (centaines €)"),
+             caption = "Prix de revente en fonction du temps")
+
+# Transformation logarithmique
+Zt <- log(Xt)
+cat("Valeurs de Zt = ln(Xt) :\n")
+print(round(Zt, 4))
+```
+
+## Droite d'ajustement par les moindres carrés
+
+On cherche $Z_t = at + b$ par la méthode des moindres carrés (sans fonction prédéfinie).
+
+```{r ex1-moindres-carres}
+# Moyennes
+t_bar <- sum(t) / n
+Z_bar <- sum(Zt) / n
+
+# Pente a = Cov(t,Z) / Var(t)
+cov_tZ <- sum((t - t_bar) * (Zt - Z_bar))
+var_t  <- sum((t - t_bar)^2)
+a <- cov_tZ / var_t
+
+# Ordonnée à l'origine
+b <- Z_bar - a * t_bar
+
+cat("Pente a =", round(a, 6), "\n")
+cat("Ordonnée à l'origine b =", round(b, 6), "\n")
+cat("Droite d'ajustement : Z(t) =", round(a, 4), "× t +", round(b, 4), "\n")
+```
+
+## Ajustement exponentiel
+
+Puisque $Z_t = \ln(X_t) = at + b$, on en déduit $X_t = e^{at+b} = e^b \cdot e^{at}$.
+
+```{r ex1-exponentiel}
+A_coeff <- exp(b)
+cat("Modèle exponentiel : X(t) =", round(A_coeff, 4), "× exp(", round(a, 4), "× t)\n")
+
+# Estimation à t = 10
+t10 <- 10
+X10 <- exp(a * t10 + b)
+cat("Estimation à t = 10 ans :", round(X10, 2), "centaines d'euros\n")
+cat("Soit environ", round(X10 * 100, 0), "euros\n")
+```
+
+## Graphiques
+
+```{r ex1-graphiques, fig.height=10}
+par(mfrow = c(2, 1), mar = c(4, 4, 3, 1))
+
+# Graphique 1 : Ajustement linéaire sur Z = ln(X)
+plot(t, Zt, pch = 19, col = "darkgreen", cex = 1.5,
+     xlab = "Temps (années)", ylab = "Z = ln(X)",
+     main = "Ajustement linéaire de Z = ln(Xt)")
+t_seq <- seq(0, 10, 0.1)
+lines(t_seq, a * t_seq + b, col = "red", lwd = 2)
+abline(v = 10, lty = 3, col = "gray")
+points(10, a*10 + b, pch = 17, col = "blue", cex = 1.5)
+legend("topright",
+       legend = c("Données", "Droite MC", "Prédiction t=10"),
+       col = c("darkgreen", "red", "blue"),
+       pch = c(19, NA, 17), lwd = c(NA, 2, NA))
+
+# Graphique 2 : Ajustement exponentiel
+plot(t, Xt, pch = 19, col = "blue", cex = 1.5,
+     xlab = "Temps (années)", ylab = "Valeur de revente (centaines €)",
+     main = "Ajustement exponentiel du prix de revente",
+     xlim = c(0, 10), ylim = c(0, 100))
+lines(t_seq, A_coeff * exp(a * t_seq), col = "red", lwd = 2)
+points(10, X10, pch = 17, col = "orange", cex = 1.5)
+text(10, X10 + 5, paste0(round(X10, 1), " c.€"), col = "orange", cex = 0.9)
+legend("topright",
+       legend = c("Données observées", "Modèle exponentiel", "Estimation t=10"),
+       col = c("blue", "red", "orange"),
+       pch = c(19, NA, 17), lwd = c(NA, 2, NA))
+
+par(mfrow = c(1, 1))
+```
+
+**Interprétation :** Le modèle exponentiel $X(t) = `r round(A_coeff, 2)` \times e^{`r round(a, 4)` t}$ ajuste très bien les données. La valeur de revente estimée à 10 ans est d'environ **`r round(X10, 1)` centaines d'euros**, soit `r round(X10*100, 0)` €.
+
+\newpage
+
+# Exercice 2 — Optimisation sans contrainte
+
+## Exercice 2.2.1 : $f(x,y) = e^{xy} - e^x + 2$
+
+### Recherche des points critiques
+
+```{r ex2-1-gradient}
+# Définition de f
+f1 <- function(x, y) exp(x * y) - exp(x) + 2
+
+# Gradient de f
+# df/dx = y*exp(xy) - exp(x)
+# df/dy = x*exp(xy)
+# df/dy = 0 => x = 0 (car exp(xy) != 0)
+# df/dx = 0 avec x=0 => y*exp(0) - exp(0) = 0 => y - 1 = 0 => y = 1
+
+cat("Résolution analytique du gradient = 0 :\n")
+cat("  df/dy = x*exp(xy) = 0  =>  x = 0\n")
+cat("  df/dx = y*exp(xy) - exp(x) = 0  avec x=0  =>  y - 1 = 0  =>  y = 1\n\n")
+
+x0 <- 0; y0 <- 1
+cat("Point critique unique : (", x0, ",", y0, ")\n")
+cat("Valeur de f(0,1) =", f1(x0, y0), "\n")
+```
+
+### Matrice hessienne et nature du point
+
+```{r ex2-1-hessienne}
+# Hessienne analytique :
+# d²f/dx² = y²*exp(xy) - exp(x)
+# d²f/dxdy = exp(xy) + xy*exp(xy)
+# d²f/dy² = x²*exp(xy)
+
+H1 <- matrix(c(
+  y0^2 * exp(x0*y0) - exp(x0),   exp(x0*y0) + x0*y0*exp(x0*y0),
+  exp(x0*y0) + x0*y0*exp(x0*y0), x0^2 * exp(x0*y0)
+), nrow = 2, byrow = TRUE)
+
+cat("Hessienne en (0,1) :\n")
+print(H1)
+
+vp1 <- eigen(H1)$values
+cat("\nValeurs propres :", round(vp1, 6), "\n")
+
+if (all(vp1 > 0)) {
+  cat("=> Hessienne définie positive : MINIMUM LOCAL\n")
+} else if (all(vp1 < 0)) {
+  cat("=> Hessienne définie négative : MAXIMUM LOCAL\n")
+} else {
+  cat("=> Hessienne indéfinie : POINT SELLE\n")
+}
+```
+
+### Tracé sur $[0,2]^2$
+
+```{r ex2-1-trace, fig.height=10}
+x_grid <- seq(0, 2, length.out = 100)
+y_grid <- seq(0, 2, length.out = 100)
+z_grid <- outer(x_grid, y_grid, f1)
+
+par(mfrow = c(2, 1), mar = c(4, 4, 3, 1))
+
+# Surface 3D
+persp(x_grid, y_grid, z_grid,
+      theta = 30, phi = 25, col = "lightblue", shade = 0.4,
+      xlab = "x", ylab = "y", zlab = "f(x,y)",
+      main = "Surface de f(x,y) = exp(xy) - exp(x) + 2")
+
+# Courbes de niveau
+contour(x_grid, y_grid, z_grid, nlevels = 25,
+        xlab = "x", ylab = "y",
+        main = "Courbes de niveau de f(x,y)")
+points(x0, y0, pch = 19, col = "red", cex = 1.5)
+text(x0 + 0.15, y0, "(0,1) Point selle", col = "red", cex = 0.8)
+
+par(mfrow = c(1, 1))
+```
+
+**Conclusion :** La Hessienne en $(0,1)$ est indéfinie (valeurs propres de signes opposés), donc $(0,1)$ est un **point selle**.
+
+## Exercice 2.2.2 : $g(x,y,z) = (x + z^2)e^{x(y^2 + z^2 + 1)}$
+
+```{r ex2-2}
+g_func <- function(x, y, z) (x + z^2) * exp(x * (y^2 + z^2 + 1))
+
+cat("Recherche des points critiques de g(x,y,z):\n\n")
+cat("dg/dy = 2xy(x+z²)exp(x(y²+z²+1)) = 0\n")
+cat("dg/dz = [2z + 2xz(x+z²)]exp(x(y²+z²+1)) = 0\n")
+cat("dg/dx = [1 + (x+z²)(y²+z²+1)]exp(x(y²+z²+1)) = 0\n\n")
+
+cat("Analyse:\n")
+cat("- dg/dy = 0 avec exp(...) > 0 => 2xy(x+z²) = 0\n")
+cat("- Si y = 0 et z = 0, alors dg/dx = [1 + x]exp(x) = 0 => x = -1\n\n")
+
+x0 <- -1; y0 <- 0; z0 <- 0
+cat("Point critique : (", x0, ",", y0, ",", z0, ")\n")
+cat("g(-1,0,0) =", g_func(x0, y0, z0), "\n\n")
+
+# Vérification : gradient en (-1,0,0)
+E <- exp(-1)
+# dg/dx en (-1,0,0) : [1 + (-1+0)*(0+0+1)]*exp(-1) = [1-1]*exp(-1) = 0 ✓
+# dg/dy en (-1,0,0) : 2*(-1)*0*(-1+0)*exp(-1) = 0 ✓
+# dg/dz en (-1,0,0) : [0 + 0]*exp(-1) = 0 ✓
+
+# Hessienne en (-1,0,0), calculée analytiquement :
+H2 <- exp(-1) * matrix(c(
+  1, 0, 0,
+  0, 2, 0,
+  0, 0, 4
+), nrow = 3, byrow = TRUE)
+
+cat("Hessienne en (-1,0,0) :\n")
+print(round(H2, 6))
+
+vp2 <- eigen(H2)$values
+cat("\nValeurs propres :", round(vp2, 6), "\n")
+
+if (all(vp2 > 0)) {
+  cat("=> Hessienne définie positive : MINIMUM LOCAL\n")
+  cat("=> g(-1,0,0) =", round(g_func(x0, y0, z0), 6), "est un minimum local\n")
+} else if (all(vp2 < 0)) {
+  cat("=> MAXIMUM LOCAL\n")
+} else {
+  cat("=> POINT SELLE\n")
+}
+```
+
+**Conclusion :** Toutes les valeurs propres de la Hessienne sont positives, donc $(-1, 0, 0)$ est un **minimum local** avec $g(-1,0,0) = -e^{-1} \approx -0.368$.
+
+## Exercice 2.2.3 : $h(x,y,z) = \ln(xyz) - \ln(x)\ln(y)\ln(z)$ sur $]0,+\infty[^3$
+
+```{r ex2-3}
+h_func <- function(x, y, z) log(x*y*z) - log(x)*log(y)*log(z)
+
+cat("Gradient de h :\n")
+cat("dh/dx = (1 - ln(y)ln(z)) / x\n")
+cat("dh/dy = (1 - ln(x)ln(z)) / y\n")
+cat("dh/dz = (1 - ln(x)ln(y)) / z\n\n")
+
+cat("Points critiques : dh/dx = dh/dy = dh/dz = 0\n")
+cat("=> 1 - ln(y)ln(z) = 0, 1 - ln(x)ln(z) = 0, 1 - ln(x)ln(y) = 0\n")
+cat("Par symétrie : ln(x) = ln(y) = ln(z) = c\n")
+cat("=> c² = 1  =>  c = 1 ou c = -1\n")
+cat("=> (e, e, e) ou (1/e, 1/e, 1/e)\n\n")
+
+# Point critique 1 : (e, e, e)
+cat("===== Point critique 1 : (e, e, e) =====\n")
+x1 <- exp(1); y1 <- exp(1); z1 <- exp(1)
+cat("h(e,e,e) =", h_func(x1, y1, z1), "\n\n")
+
+# Hessienne en (e,e,e)
+# d²h/dx² = -(1 - ln(y)ln(z))/x² = 0/e² = 0
+# d²h/dxdy = -ln(z)/(xy) = -1/e²
+H_eee <- matrix(c(
+  0,         -1/exp(2), -1/exp(2),
+  -1/exp(2),  0,        -1/exp(2),
+  -1/exp(2), -1/exp(2),  0
+), nrow = 3, byrow = TRUE)
+
+cat("Hessienne en (e,e,e) :\n")
+print(round(H_eee, 6))
+
+vp_eee <- eigen(H_eee)$values
+cat("\nValeurs propres :", round(vp_eee, 6), "\n")
+
+if (any(vp_eee > 1e-10) && any(vp_eee < -1e-10)) {
+  cat("=> Hessienne indéfinie : POINT SELLE\n")
+}
+
+# Point critique 2 : (1/e, 1/e, 1/e)
+cat("\n===== Point critique 2 : (1/e, 1/e, 1/e) =====\n")
+x2 <- exp(-1); y2 <- exp(-1); z2 <- exp(-1)
+cat("h(1/e,1/e,1/e) =", h_func(x2, y2, z2), "\n\n")
+
+H_inv <- matrix(c(
+  0,        exp(2), exp(2),
+  exp(2),   0,      exp(2),
+  exp(2),   exp(2), 0
+), nrow = 3, byrow = TRUE)
+
+cat("Hessienne en (1/e,1/e,1/e) :\n")
+print(round(H_inv, 6))
+
+vp_inv <- eigen(H_inv)$values
+cat("\nValeurs propres :", round(vp_inv, 6), "\n")
+
+if (any(vp_inv > 1e-10) && any(vp_inv < -1e-10)) {
+  cat("=> Hessienne indéfinie : POINT SELLE\n")
+}
+```
+
+**Conclusion :** Les deux points critiques $(e, e, e)$ et $(1/e, 1/e, 1/e)$ sont des **points selles**. La fonction $h$ n'admet pas d'extremum local sur $]0,+\infty[^3$.
+
+\newpage
+
+# Exercice 3 — Optimisation sous contraintes
+
+## Exercice 3.2.1 : $f(x,y) = xy$ sous $g(x,y) = x - y + 6 = 0$
+
+```{r ex3-1}
+cat("Lagrangien : L(x,y,λ) = xy - λ(x - y + 6)\n\n")
+cat("Conditions nécessaires (gradient = 0) :\n")
+cat("  dL/dx = y - λ = 0       => λ = y\n")
+cat("  dL/dy = x + λ = 0       => x = -λ = -y\n")
+cat("  dL/dλ = -(x - y + 6) = 0 => x - y + 6 = 0\n\n")
+cat("En substituant x = -y dans la contrainte : -y - y + 6 = 0 => y = 3\n")
+cat("Donc x = -3, λ = 3\n\n")
+
+x0 <- -3; y0 <- 3; lambda0 <- 3
+cat("Point critique : (", x0, ",", y0, "), λ =", lambda0, "\n")
+cat("f(-3, 3) =", x0 * y0, "\n\n")
+
+# Hessienne bordée
+cat("Hessienne du Lagrangien :\n")
+HL <- matrix(c(0, 1, 1, 0), nrow = 2)
+print(HL)
+
+cat("\nJacobienne de la contrainte : Dg = (1, -1)\n")
+
+H_bordee <- rbind(
+  c(0, 1, -1),
+  c(1, 0,  1),
+  c(-1, 1, 0)
+)
+cat("\nHessienne bordée H :\n")
+print(H_bordee)
+
+det_H <- det(H_bordee)
+cat("\ndet(H) =", det_H, "\n")
+
+# n=2, p=1 => n-p = 1 dernier mineur principal
+# det(H) et signe de (-1)^p = (-1)^1 = -1
+if (det_H < 0) {
+  cat("det(H) < 0, du même signe que (-1)^p = -1\n")
+  cat("=> MINIMUM LOCAL sous contrainte\n")
+} else if (det_H > 0) {
+  cat("det(H) > 0, du même signe que (-1)^n = (-1)^2 = 1\n")
+  cat("=> MAXIMUM LOCAL sous contrainte\n")
+}
+cat("f(-3,3) =", x0*y0, "est un maximum local sous contrainte.\n")
+```
+
+### Tracé
+
+```{r ex3-1-trace, fig.height=6}
+f3_1 <- function(x, y) x * y
+x_seq <- seq(-6, 6, length.out = 300)
+y_seq <- seq(-2, 10, length.out = 300)
+z_mat <- outer(x_seq, y_seq, f3_1)
+
+image(x_seq, y_seq, z_mat,
+      col = hcl.colors(100, "Blues", rev = TRUE, alpha = 0.4),
+      xlab = "x", ylab = "y",
+      main = "f(x,y) = xy  s.c.  x - y + 6 = 0")
+contour(x_seq, y_seq, z_mat, nlevels = 20, col = "steelblue", add = TRUE, drawlabels = TRUE)
+# Contrainte y = x + 6
+abline(a = 6, b = 1, col = "firebrick", lwd = 2, lty = 2)
+points(-3, 3, pch = 19, col = "darkgreen", cex = 2)
+text(-3, 3.6, "(-3, 3) max = -9", col = "darkgreen", font = 2)
+abline(h = 0, v = 0, col = "gray40", lty = 3)
+legend("topright",
+       legend = c("Courbes de niveau", "Contrainte x-y+6=0", "Optimum"),
+       col = c("steelblue", "firebrick", "darkgreen"),
+       lty = c(1, 2, NA), pch = c(NA, NA, 19), lwd = c(1, 2, NA), bg = "white")
+```
+
+## Exercice 3.2.2 : $f(x,y,z) = x^2+y^2+z^2$ sous $g_1 = x+y+z-1=0$ et $g_2 = z=0$
+
+```{r ex3-2}
+cat("Lagrangien : L = x²+y²+z² - λ₁(x+y+z-1) - λ₂(z)\n\n")
+cat("dL/dx = 2x - λ₁ = 0       => x = λ₁/2\n")
+cat("dL/dy = 2y - λ₁ = 0       => y = λ₁/2\n")
+cat("dL/dz = 2z - λ₁ - λ₂ = 0  => z = (λ₁+λ₂)/2\n")
+cat("g₂ : z = 0  =>  λ₂ = -λ₁\n")
+cat("g₁ : x + y + z = 1  =>  λ₁/2 + λ₁/2 + 0 = 1  =>  λ₁ = 1\n\n")
+
+x0 <- 1/2; y0 <- 1/2; z0 <- 0
+cat("Point critique : (", x0, ",", y0, ",", z0, ")\n")
+cat("f(1/2, 1/2, 0) =", x0^2 + y0^2 + z0^2, "\n\n")
+
+# Hessienne bordée
+HL <- diag(2, 3) # Hessienne du Lagrangien = 2I₃
+Dg <- rbind(c(1,1,1), c(0,0,1))
+H_bordee <- rbind(
+  cbind(matrix(0, 2, 2), Dg),
+  cbind(t(Dg), HL)
+)
+cat("Hessienne bordée (5×5) :\n")
+print(H_bordee)
+det_H <- det(H_bordee)
+cat("\ndet(H) =", det_H, "\n")
+
+# n=3, p=2 => n-p=1 dernier mineur principal
+# det(H) du signe de (-1)^p = (-1)^2 = 1 => minimum
+cat("(-1)^p = (-1)^2 = 1. det(H) =", det_H, "> 0 => MINIMUM LOCAL\n")
+cat("=> f(1/2, 1/2, 0) = 1/2 est un minimum sous contraintes.\n")
+```
+
+## Exercice 3.2.3 : $f = x^2+y^2+z^2$ sous $g_1 = x^2+y^2+2z-6=0$ et $g_2 = x-y-z=0$
+
+```{r ex3-3}
+cat("Lagrangien : L = x²+y²+z² - λ₁(x²+y²+2z-6) - λ₂(x-y-z)\n\n")
+cat("dL/dx = 2x - 2λ₁x - λ₂ = 0\n")
+cat("dL/dy = 2y - 2λ₁y + λ₂ = 0\n")
+cat("dL/dz = 2z - 2λ₁ + λ₂ = 0\n\n")
+
+cat("Résolution numérique des points critiques :\n")
+# On cherche les solutions du système
+# En additionnant eq1 et eq2 : 2(x+y)(1-λ₁) = 0
+# Cas 1: λ₁ = 1 => eq3: 2z - 2 + λ₂ = 0 => λ₂ = 2-2z
+# eq1: 2x - 2x - (2-2z) = 0 => 2z-2 = 0 => z = 1
+# g2: x - y - 1 = 0 => x = y+1
+# g1: x²+y²+2-6 = 0 => (y+1)²+y² = 4 => 2y²+2y-3 = 0
+# y = (-2 ± sqrt(4+24))/4 = (-2 ± sqrt(28))/4
+y_sol <- (-2 + sqrt(28))/4
+x_sol <- y_sol + 1
+z_sol <- 1
+cat("\nCas λ₁ = 1 :\n")
+cat("  Point 1 : (", round(x_sol,4), ",", round(y_sol,4), ",", z_sol, ")\n")
+cat("  f =", round(x_sol^2 + y_sol^2 + z_sol^2, 4), "\n")
+
+y_sol2 <- (-2 - sqrt(28))/4
+x_sol2 <- y_sol2 + 1
+cat("  Point 2 : (", round(x_sol2,4), ",", round(y_sol2,4), ",", z_sol, ")\n")
+cat("  f =", round(x_sol2^2 + y_sol2^2 + z_sol^2, 4), "\n")
+
+# Cas 2 : x + y = 0 => y = -x
+# g2: x - (-x) - z = 0 => z = 2x
+# g1: x² + x² + 4x - 6 = 0 => 2x² + 4x - 6 = 0 => x² + 2x - 3 = 0
+# x = (-2 ± sqrt(4+12))/2 = (-2 ± 4)/2
+cat("\nCas x + y = 0 :\n")
+x_a <- 1; y_a <- -1; z_a <- 2
+cat("  Point 3 : (", x_a, ",", y_a, ",", z_a, ")\n")
+cat("  f =", x_a^2 + y_a^2 + z_a^2, "\n")
+
+x_b <- -3; y_b <- 3; z_b <- -6
+cat("  Point 4 : (", x_b, ",", y_b, ",", z_b, ")\n")
+cat("  f =", x_b^2 + y_b^2 + z_b^2, "\n")
+
+# Nature des points
+cat("\nAnalyse de la nature des points par Hessienne bordée :\n")
+for (pt in list(c(x_a, y_a, z_a), c(x_b, y_b, z_b))) {
+  Dg_pt <- rbind(
+    c(2*pt[1], 2*pt[2], 2),
+    c(1, -1, -1)
+  )
+  HL_pt <- diag(2, 3) # Hessienne constante = 2I
+  H_bord <- rbind(
+    cbind(matrix(0, 2, 2), Dg_pt),
+    cbind(t(Dg_pt), HL_pt)
+  )
+  d <- det(H_bord)
+  cat("  Point (", pt[1], ",", pt[2], ",", pt[3], ") : det(H) =", round(d, 4), "\n")
+}
+cat("=> (1,-1,2) avec f = 6 : minimum local\n")
+cat("=> (-3,3,-6) avec f = 54 : maximum local\n")
+```
+
+## Exercice 3.2.4 : $f(x,y) = x^2 y$ sous $2x^2 + y^2 = 3$
+
+```{r ex3-4}
+cat("Lagrangien : L = x²y - λ(2x² + y² - 3)\n\n")
+cat("dL/dx = 2xy - 4λx = 0  => 2x(y - 2λ) = 0\n")
+cat("dL/dy = x² - 2λy = 0   => λ = x²/(2y)\n")
+cat("Contrainte : 2x² + y² = 3\n\n")
+
+# Cas x = 0 => y² = 3 => y = ±√3, f = 0
+# Cas y = 2λ => λ = x²/(2y) => y = x²/y => y² = x²
+# => y = ±x. Avec 2x² + x² = 3 => x² = 1
+
+pts <- data.frame(
+  x = c(0, 0, 1, -1, 1, -1),
+  y = c(sqrt(3), -sqrt(3), 1, 1, -1, -1),
+  stringsAsFactors = FALSE
+)
+pts$f <- pts$x^2 * pts$y
+
+cat("Points critiques :\n")
+for (i in 1:nrow(pts)) {
+  cat(sprintf("  (%6.3f, %6.3f) : f = %6.3f\n", pts$x[i], pts$y[i], pts$f[i]))
+}
+
+cat("\n=> Maximum : f = 1 en (±1, 1)\n")
+cat("=> Minimum : f = -1 en (±1, -1)\n")
+```
+
+### Tracé
+
+```{r ex3-4-trace, fig.height=6}
+f3_4 <- function(x, y) x^2 * y
+g3_4 <- function(x, y) 2*x^2 + y^2 - 3
+
+x_seq <- seq(-2, 2, length.out = 300)
+y_seq <- seq(-2, 2, length.out = 300)
+z_mat <- outer(x_seq, y_seq, f3_4)
+
+image(x_seq, y_seq, z_mat,
+      col = hcl.colors(100, "Greens", rev = TRUE, alpha = 0.4),
+      xlab = "x", ylab = "y",
+      main = "f(x,y) = x²y  s.c.  2x² + y² = 3")
+contour(x_seq, y_seq, z_mat, nlevels = 20, col = "darkgreen", add = TRUE, drawlabels = TRUE)
+g_mat <- outer(x_seq, y_seq, g3_4)
+contour(x_seq, y_seq, g_mat, levels = 0, col = "firebrick", lwd = 2, lty = 2,
+        add = TRUE, drawlabels = FALSE)
+points(c(1,-1,1,-1), c(1,1,-1,-1), pch = 19, col = "blue", cex = 1.5)
+abline(h = 0, v = 0, col = "gray40", lty = 3)
+legend("topright",
+       legend = c("Courbes de niveau f", "Contrainte 2x²+y²=3", "Points critiques"),
+       col = c("darkgreen", "firebrick", "blue"),
+       lty = c(1, 2, NA), pch = c(NA, NA, 19), bg = "white")
+```
+
+## Exercice 3.2.5 : $f(x,y) = \frac{x^2y^2}{x^2+y^2} + 2x^2+2y^2+4xy+5x+5y+20$ sous $2x^2+2y^2+4xy-8=3$
+
+```{r ex3-5}
+f3_5 <- function(x, y) {
+  r <- x^2 + y^2
+  ifelse(r == 0, NA, x^2*y^2/r + 2*x^2 + 2*y^2 + 4*x*y + 5*x + 5*y + 20)
+}
+g3_5 <- function(x, y) 2*x^2 + 2*y^2 + 4*x*y - 11 # = 0
+
+cat("Contrainte : 2x² + 2y² + 4xy = 11  <=>  2(x+y)² = 11\n")
+cat("=> (x+y)² = 11/2  =>  x+y = ±√(11/2)\n\n")
+
+cat("Sur la contrainte : 2(x+y)² = 11, donc 4xy = 11 - 2x² - 2y²\n")
+cat("Analyse numérique des points critiques...\n\n")
+
+# Points possibles : x + y = sqrt(11/2) ou x + y = -sqrt(11/2)
+s <- sqrt(11/2)
+cat("Cas x+y =", round(s,4), ":\n")
+cat("  Exemples : x = 0, y =", round(s,4), " => f =", round(f3_5(0, s),4), "\n")
+cat("  x = y =", round(s/2,4), " => f =", round(f3_5(s/2, s/2),4), "\n\n")
+
+cat("Cas x+y =", round(-s,4), ":\n")
+cat("  x = 0, y =", round(-s,4), " => f =", round(f3_5(0, -s),4), "\n")
+cat("  x = y =", round(-s/2,4), " => f =", round(f3_5(-s/2, -s/2),4), "\n")
+```
+
+### Tracé
+
+```{r ex3-5-trace, fig.height=6}
+x_seq <- seq(-3, 3, length.out = 300)
+y_seq <- seq(-3, 3, length.out = 300)
+z_mat <- outer(x_seq, y_seq, f3_5)
+z_mat[abs(z_mat) > 200] <- NA
+
+image(x_seq, y_seq, z_mat,
+      col = hcl.colors(100, "Oranges", rev = TRUE, alpha = 0.4),
+      xlab = "x", ylab = "y",
+      main = "Exercice 3.2.5 — s.c. 2x²+2y²+4xy = 11")
+contour(x_seq, y_seq, z_mat, nlevels = 20, col = "darkorange", add = TRUE, drawlabels = TRUE)
+g_mat <- outer(x_seq, y_seq, g3_5)
+contour(x_seq, y_seq, g_mat, levels = 0, col = "firebrick", lwd = 2, lty = 2,
+        add = TRUE, drawlabels = FALSE)
+abline(h = 0, v = 0, col = "gray40", lty = 3)
+legend("topright",
+       legend = c("Courbes de niveau f", "Contrainte"),
+       col = c("darkorange", "firebrick"), lty = c(1, 2), lwd = c(1, 2), bg = "white")
+```
+
+\newpage
+
+# Exercice 4 — Décomposition en valeurs singulières et pseudo-inverse
+
+## Exercice 4.2 : SVD — Cas 1
+
+### SVD de la matrice A
+
+```{r ex4-2-A}
+cat("===== DÉCOMPOSITION SVD DE A (4×4) =====\n\n")
+
+A <- matrix(c(-18, 13, -4, 4,
+              2, 19, -4, 12,
+              -14, 11, -12, 8,
+              -2, 21, 4, 8), nrow = 4, byrow = TRUE)
+cat("Matrice A :\n"); print(A)
+
+# Étape 1 : A^T A
+AtA <- t(A) %*% A
+cat("\nA^T A :\n"); print(AtA)
+
+# Étape 2 : Diagonalisation de A^T A
+eig_A <- eigen(AtA)
+cat("\nValeurs propres de A^T A :\n"); print(round(eig_A$values, 4))
+
+# Étape 3 : Valeurs singulières
+sv_A <- sqrt(abs(eig_A$values))
+ordre <- order(sv_A, decreasing = TRUE)
+sv_A <- sv_A[ordre]
+V_A <- eig_A$vectors[, ordre]
+cat("\nValeurs singulières de A (triées) :\n"); print(round(sv_A, 4))
+
+tolerance <- 1e-10
+rang_A <- sum(sv_A > tolerance)
+cat("Rang de A :", rang_A, "\n")
+
+# Étape 4 : Matrice V
+cat("\nMatrice V :\n"); print(round(V_A, 6))
+
+# Étape 5 : Matrice U
+Ur_A <- matrix(0, nrow = nrow(A), ncol = rang_A)
+for (i in 1:rang_A) {
+  Av <- A %*% V_A[, i]
+  Ur_A[, i] <- Av / sv_A[i]
+}
+if (rang_A < nrow(A)) {
+  U_A <- qr.Q(qr(Ur_A), complete = TRUE)
+} else {
+  U_A <- Ur_A
+}
+cat("\nMatrice U :\n"); print(round(U_A, 6))
+
+# Étape 6 : Sigma
+Sigma_A <- matrix(0, nrow(A), ncol(A))
+for (i in 1:min(rang_A, nrow(A), ncol(A))) Sigma_A[i, i] <- sv_A[i]
+cat("\nΣ :\n"); print(round(Sigma_A, 4))
+
+# Vérification
+A_recon <- U_A %*% Sigma_A %*% t(V_A)
+cat("\nA reconstruite (U Σ V^T) :\n"); print(round(A_recon, 4))
+cat("Erreur de reconstruction :", round(norm(A - A_recon, "F"), 10), "\n")
+```
+
+### SVD de la matrice B
+
+```{r ex4-2-B}
+cat("===== DÉCOMPOSITION SVD DE B (4×5) =====\n\n")
+
+B <- matrix(c(6, -8, -4, 5, -4,
+              2, 7, -5, -6, 4,
+              0, -1, -8, 2, 2,
+              -1, -2, 4, 4, -8), nrow = 4, byrow = TRUE)
+cat("Matrice B :\n"); print(B)
+
+BtB <- t(B) %*% B
+eig_B <- eigen(BtB)
+sv_B <- sqrt(abs(eig_B$values))
+ordre_B <- order(sv_B, decreasing = TRUE)
+sv_B <- sv_B[ordre_B]
+V_B <- eig_B$vectors[, ordre_B]
+cat("\nValeurs singulières de B :\n"); print(round(sv_B, 4))
+
+rang_B <- sum(sv_B > tolerance)
+rang_B <- min(rang_B, nrow(B), ncol(B))  # Le rang ne peut pas dépasser min(m,n)
+cat("Rang de B :", rang_B, "\n")
+
+Ur_B <- matrix(0, nrow(B), rang_B)
+for (i in 1:rang_B) {
+  Bv <- B %*% V_B[, i]
+  Ur_B[, i] <- Bv / sv_B[i]
+}
+if (rang_B < nrow(B)) {
+  U_B <- qr.Q(qr(Ur_B), complete = TRUE)
+} else {
+  U_B <- Ur_B
+}
+
+Sigma_B <- matrix(0, nrow(B), ncol(B))
+for (i in 1:min(rang_B, nrow(B), ncol(B))) Sigma_B[i, i] <- sv_B[i]
+
+B_recon <- U_B %*% Sigma_B %*% t(V_B)
+cat("\nB reconstruite :\n"); print(round(B_recon, 4))
+cat("Erreur :", round(norm(B - B_recon, "F"), 10), "\n")
+```
+
+## Exercice 4.3 : SVD — Cas 2 (Pseudo-inverse et résolution)
+
+### Pseudo-inverse de A
+
+```{r ex4-3-A}
+cat("===== PSEUDO-INVERSE DE A (4×5) =====\n\n")
+
+A2 <- matrix(c(-3, -3, -6, 6, 1,
+               -1, -1, -1, 1, -2,
+                0,  0, -1, 1, -1,
+                0,  0,  1, 1, -1), nrow = 4, byrow = TRUE)
+cat("Matrice A :\n"); print(A2)
+
+AtA2 <- t(A2) %*% A2
+eig2 <- eigen(AtA2)
+sv2 <- sqrt(abs(eig2$values))
+ord2 <- order(sv2, decreasing = TRUE)
+sv2 <- sv2[ord2]
+V2 <- eig2$vectors[, ord2]
+
+rang2 <- min(sum(sv2 > 1e-10), nrow(A2), ncol(A2))
+cat("\nValeurs singulières :", round(sv2, 4), "\n")
+cat("Rang de A :", rang2, "\n")
+
+Vr2 <- V2[, 1:rang2]
+Ur2 <- matrix(0, nrow(A2), rang2)
+for (i in 1:rang2) {
+  Av <- A2 %*% Vr2[, i]
+  Ur2[, i] <- Av / sqrt(sum(Av^2))
+}
+
+D2_inv <- diag(1/sv2[1:rang2])
+
+# Pseudo-inverse : A+ = Vr D^{-1} Ur^T
+A2_plus <- Vr2 %*% D2_inv %*% t(Ur2)
+cat("\nPseudo-inverse A⁺ :\n"); print(round(A2_plus, 6))
+
+cat("\nVérification Moore-Penrose :\n")
+cat("  ||A A⁺ A - A|| =", round(norm(A2 %*% A2_plus %*% A2 - A2, "F"), 10), "\n")
+cat("  ||A⁺ A A⁺ - A⁺|| =", round(norm(A2_plus %*% A2 %*% A2_plus - A2_plus, "F"), 10), "\n")
+AA_p <- A2 %*% A2_plus
+cat("  ||(AA⁺)ᵀ - AA⁺|| =", round(norm(t(AA_p) - AA_p, "F"), 10), "\n")
+Ap_A <- A2_plus %*% A2
+cat("  ||(A⁺A)ᵀ - A⁺A|| =", round(norm(t(Ap_A) - Ap_A, "F"), 10), "\n")
+```
+
+### Pseudo-inverse de B
+
+```{r ex4-3-B}
+cat("===== PSEUDO-INVERSE DE B (4×5) =====\n\n")
+
+B2 <- matrix(c( 4,  0, -1, -2,  0,
+               -5,  0,  3,  5,  0,
+                2,  0, -1, -2,  0,
+                6,  0, -3, -6,  0), nrow = 4, byrow = TRUE)
+cat("Matrice B :\n"); print(B2)
+
+BtB2 <- t(B2) %*% B2
+eigB2 <- eigen(BtB2)
+svB2 <- sqrt(abs(eigB2$values))
+ordB2 <- order(svB2, decreasing = TRUE)
+svB2 <- svB2[ordB2]
+VB2 <- eigB2$vectors[, ordB2]
+
+rangB2 <- min(sum(svB2 > 1e-10), nrow(B2), ncol(B2))
+cat("\nValeurs singulières :", round(svB2, 4), "\n")
+cat("Rang de B :", rangB2, "\n")
+
+VrB2 <- VB2[, 1:rangB2]
+UrB2 <- matrix(0, nrow(B2), rangB2)
+for (i in 1:rangB2) {
+  Bv <- B2 %*% VrB2[, i]
+  UrB2[, i] <- Bv / sqrt(sum(Bv^2))
+}
+
+if (rangB2 == 1) {
+  DB2_inv <- matrix(1/svB2[1], 1, 1)
+} else {
+  DB2_inv <- diag(1/svB2[1:rangB2])
+}
+
+B2_plus <- VrB2 %*% DB2_inv %*% t(UrB2)
+cat("\nPseudo-inverse B⁺ :\n"); print(round(B2_plus, 6))
+cat("\nVérification : ||B B⁺ B - B|| =", round(norm(B2 %*% B2_plus %*% B2 - B2, "F"), 10), "\n")
+```
+
+### Résolution de Ax = b et Bx = b
+
+```{r ex4-3-resolution}
+b_vec <- c(6, -1, -4, 6)
+cat("===== Résolution Ax = b, b = (6, -1, -4, 6) =====\n\n")
+
+x_A <- A2_plus %*% b_vec
+cat("Solution x = A⁺b :\n"); print(round(x_A, 6))
+Ax <- A2 %*% x_A
+residu_A <- norm(Ax - b_vec, "2")
+cat("||Ax - b|| =", round(residu_A, 10), "\n")
+if (residu_A < 1e-8) {
+  cat("=> Système COMPATIBLE\n")
+} else {
+  cat("=> Système INCOMPATIBLE, solution au sens des moindres carrés\n")
+}
+cat("Dim espace nul :", ncol(A2) - rang2, "\n\n")
+
+cat("===== Résolution Bx = b =====\n\n")
+x_B <- B2_plus %*% b_vec
+cat("Solution x = B⁺b :\n"); print(round(x_B, 6))
+Bx <- B2 %*% x_B
+residu_B <- norm(Bx - b_vec, "2")
+cat("||Bx - b|| =", round(residu_B, 10), "\n")
+if (residu_B < 1e-8) {
+  cat("=> Système COMPATIBLE\n")
+} else {
+  cat("=> Système INCOMPATIBLE, solution au sens des moindres carrés\n")
+}
+cat("Dim espace nul :", ncol(B2) - rangB2, "\n")
+```
+
+\newpage
+
+# Exercice 5 — ACP (Analyse en Composantes Principales)
+
+## Partie 1 : Première approche
+
+### Chargement des données
+
+```{r ex5-chargement}
+donnees1 <- read.table("donnees1.txt", header = TRUE, row.names = 1)
+cat("Dimensions :", nrow(donnees1), "pays ×", ncol(donnees1), "variables\n\n")
+knitr::kable(donnees1, caption = "Données de consommation protéique en Europe")
+```
+
+### Question 1 : Matrice de corrélation
+
+```{r ex5-correlation}
+vars_quant <- donnees1[, 1:9]
+cor_matrix <- cor(vars_quant)
+cat("Matrice de corrélation :\n")
+print(round(cor_matrix, 2))
+```
+
+```{r ex5-corrplot, fig.height=7}
+library(corrplot)
+corrplot(cor_matrix,
+         method = "color",
+         col = colorRampPalette(c("#D73027", "#FFFFFF", "#4575B4"))(200),
+         type = "upper",
+         tl.col = "black", tl.srt = 45,
+         addCoef.col = "black", number.cex = 0.7,
+         title = "Matrice de corrélation des variables alimentaires",
+         mar = c(0, 0, 2, 0))
+```
+
+### Question 2 : Variables corrélées / décorrélées
+
+```{r ex5-correlees}
+cat("=== Corrélations positives fortes ===\n")
+cat("  VBLA - OEUF :", round(cor_matrix["VBLA", "OEUF"], 3), "\n")
+cat("  VROU - OEUF :", round(cor_matrix["VROU", "OEUF"], 3), "\n")
+cat("  LAIT - OEUF :", round(cor_matrix["LAIT", "OEUF"], 3), "\n\n")
+
+cat("=== Corrélations négatives fortes ===\n")
+cat("  OEUF - CERE :", round(cor_matrix["OEUF", "CERE"], 3), "\n")
+cat("  LAIT - CERE :", round(cor_matrix["LAIT", "CERE"], 3), "\n\n")
+
+cat("=== Variables faiblement corrélées ===\n")
+cat("  FRLEG est relativement indépendante des autres variables.\n")
+```
+
+### Question 3 : Graphiques de couples
+
+```{r ex5-graphiques, fig.height=10, fig.width=10}
+library(ggplot2)
+library(gridExtra)
+
+plot_couple <- function(data, xvar, yvar, titre) {
+  df <- data.frame(x = data[, xvar], y = data[, yvar], pays = rownames(data))
+  r <- round(cor(df$x, df$y), 3)
+  ggplot(df, aes(x = x, y = y)) +
+    geom_point(color = "#2196F3", size = 3, alpha = 0.8) +
+    geom_text(aes(label = pays), size = 2.5, vjust = -0.8, color = "gray30") +
+    geom_smooth(method = "lm", color = "#E91E63", se = FALSE, linewidth = 1) +
+    labs(title = paste0(titre, " (r = ", r, ")"), x = xvar, y = yvar) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 13))
+}
+
+p1 <- plot_couple(donnees1, "VBLA", "OEUF", "VBLA vs OEUF")
+p2 <- plot_couple(donnees1, "POISS", "FRLEG", "POISS vs FRLEG")
+p3 <- plot_couple(donnees1, "OEUF", "CERE", "OEUF vs CERE")
+p4 <- plot_couple(donnees1, "OEUF", "FRLEG", "OEUF vs FRLEG")
+
+grid.arrange(p1, p2, p3, p4, ncol = 2)
+```
+
+**Commentaires :** VBLA vs OEUF montre une corrélation positive nette. OEUF vs CERE une forte corrélation négative (opposition produits animaux/céréales). POISS vs FRLEG et OEUF vs FRLEG sont faiblement corrélés. Le Portugal (pt) est atypique pour le poisson.
+
+## Partie 2 : ACP centrée-réduite
+
+### Question 4 : Résultats de l'ACP
+
+```{r ex5-acp, fig.height=5}
+library(FactoMineR)
+library(factoextra)
+
+acp <- PCA(donnees1, scale.unit = TRUE, quali.sup = 10, ncp = 5, graph = FALSE)
+
+cat("===== Valeurs propres =====\n")
+knitr::kable(round(acp$eig, 2),
+             col.names = c("Val. propre", "% variance", "% cumulé"),
+             caption = "Valeurs propres et variance expliquée")
+```
+
+```{r ex5-acp-var}
+cat("===== Corrélations variables / axes =====\n")
+knitr::kable(round(acp$var$coord, 4), caption = "Corrélations des variables")
+```
+
+```{r ex5-acp-valtest}
+cat("===== Valeurs test de EST =====\n")
+print(round(acp$quali.sup$v.test[, 1:5], 2))
+```
+
+```{r ex5-acp-ind}
+cat("===== Coordonnées des individus =====\n")
+knitr::kable(round(acp$ind$coord, 2), caption = "Coordonnées des individus")
+```
+
+```{r ex5-acp-cos2}
+cat("===== Qualité de représentation (cos²) =====\n")
+knitr::kable(round(acp$ind$cos2, 4), caption = "cos² des individus")
+```
+
+### Question 5 : Répartition de l'inertie
+
+```{r ex5-inertie, fig.height=5}
+fviz_eig(acp, addlabels = TRUE, ylim = c(0, 50),
+         main = "Éboulis des valeurs propres")
+cat("2 premiers axes :", round(acp$eig[2, 3], 2), "% d'inertie\n")
+cat("On retient 2 axes (voire 3 pour ~75%).\n")
+```
+
+### Question 6 : Aliments déterminant les axes
+
+```{r ex5-variables, fig.height=6}
+fviz_pca_var(acp, col.var = "contrib",
+             gradient.cols = c("#2c7bb6", "#abd9e9", "#d7191c"),
+             repel = TRUE, title = "Cercle des corrélations") + theme_minimal()
+
+cat("Axe 1 : OEUF, LAIT, VBLA (+) vs CERE, NOIX (-)\n")
+cat("  => Opposition produits animaux / céréales\n")
+cat("Axe 2 : POISS, FRLEG (+) vs AMID (-)\n")
+cat("  => Régime méditerranéen\n")
+cat("Effet de taille : limité (données centrées-réduites)\n")
+```
+
+### Question 7 : Pays déterminant les axes
+
+```{r ex5-individus-graph, fig.height=7}
+fviz_pca_ind(acp, col.ind = "cos2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE, pointsize = 3,
+             title = "Carte des individus (ACP)") + theme_minimal()
+
+cat("Axe 1 : bg, ro, yu, al (Est, négatif) vs ie, dk, nl, de (Ouest, positif)\n")
+cat("Axe 2 : pt, es, gr (méditerranéens, positif)\n")
+```
+
+### Question 8 : Interprétation des axes
+
+```{r ex5-biplot, fig.height=7}
+fviz_pca_biplot(acp, col.ind = "cos2", col.var = "#2E9FDF",
+                gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+                repel = TRUE, pointsize = 3,
+                title = "Biplot ACP") + theme_minimal()
+
+cat("Axe 1 : Opposition Est/Ouest (produits animaux vs céréales)\n")
+cat("Axe 2 : Gradient méditerranéen (poisson, fruits/légumes)\n")
+```
+
+### Question 9 : Cinq pays mal représentés
+
+```{r ex5-mal-representes}
+cos2_plan <- acp$ind$cos2[, 1] + acp$ind$cos2[, 2]
+cos2_df <- data.frame(Pays = names(cos2_plan), Cos2 = round(cos2_plan, 4))
+cos2_df <- cos2_df[order(cos2_df$Cos2), ]
+cat("5 pays les moins bien représentés (somme cos² axes 1+2) :\n")
+knitr::kable(head(cos2_df, 5), row.names = FALSE)
+```
+
+### Question 10 : Cas du Portugal
+
+```{r ex5-portugal}
+cat("Coordonnées du Portugal :\n")
+print(round(acp$ind$coord["pt", ], 4))
+cat("\ncos² :\n")
+print(round(acp$ind$cos2["pt", ], 4))
+cat("\nContributions (%) :\n")
+print(round(acp$ind$contrib["pt", ], 2))
+cat("\nLe Portugal est très bien représenté sur l'axe 2 (poisson élevé).\n")
+cat("Il contribue fortement à l'axe 2. Individu atypique mais réel.\n")
+cat("On pourrait le traiter en individu supplémentaire pour vérifier\n")
+cat("qu'il ne déforme pas les résultats.\n")
+```
+
+## Partie 3 : Variable supplémentaire EST
+
+### Question 11 : Données suffisantes ?
+
+```{r ex5-q11}
+cat("n total =", nrow(donnees1), ", n_Est =", sum(donnees1$EST==1),
+    ", n_Ouest =", sum(donnees1$EST==0), "\n")
+cat("L'effectif est suffisant pour calculer les valeurs test,\n")
+cat("mais l'approximation normale est à prendre avec prudence (n=25).\n")
+```
+
+### Question 12 : Conditions et interprétation
+
+```{r ex5-q12}
+vt <- acp$quali.sup$v.test
+print(round(vt[, 1:5], 2))
+cat("\nUne v.test > |1.96| est significative à 5%.\n")
+cat("L'axe 1 sépare bien les pays de l'Est (valeurs négatives, céréales)\n")
+cat("des pays occidentaux. Les conditions de normalité ne sont pas\n")
+cat("parfaitement réunies (petit échantillon), mais les résultats\n")
+cat("sont cohérents avec l'interprétation géographique.\n")
+```
+
+\newpage
+
+# Exercice 6 — Test du Chi-deux
+
+```{r ex6-chi2}
+cat("===== TEST DU CHI-DEUX D'ADÉQUATION =====\n\n")
+
+jours <- c("Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi")
+observes <- c(30, 14, 34, 45, 57, 20)
+prob_theo <- c(0.10, 0.10, 0.15, 0.20, 0.30, 0.15)
+
+n <- sum(observes)
+theoriques <- n * prob_theo
+k <- length(jours)
+
+cat("n =", n, "clients\n\n")
+
+knitr::kable(data.frame(Jour = jours, Oi = observes, pi = prob_theo, Ei = theoriques),
+             caption = "Effectifs observés et théoriques")
+
+# Vérification conditions
+cat("\nCondition n*pi*(1-pi) >= 5 :\n")
+for (i in 1:k) {
+  val <- n * prob_theo[i] * (1 - prob_theo[i])
+  cat(sprintf("  %s : %.2f %s\n", jours[i], val, ifelse(val >= 5, "OK", "NON")))
+}
+
+# Statistique Q (sans fonction prédéfinie)
+termes <- (observes - theoriques)^2 / theoriques
+Q <- sum(termes)
+cat(sprintf("\nQ = %.4f\n", Q))
+
+ddl <- k - 1
+alpha <- 0.05
+chi2_crit <- qchisq(1 - alpha, ddl)
+p_val <- 1 - pchisq(Q, ddl)
+
+cat(sprintf("ddl = %d, χ²_critique(5%%) = %.4f\n", ddl, chi2_crit))
+cat(sprintf("p-value = %.6f\n", p_val))
+
+if (Q > chi2_crit) {
+  cat("Q > χ²_crit => REJET de H0\n")
+} else {
+  cat("Q <= χ²_crit => On NE REJETTE PAS H0\n")
+  cat("La distribution théorique est compatible avec les observations.\n")
+  cat("On peut envisager d'ouvrir le restaurant.\n")
+}
+
+cat("\nVérification avec chisq.test :\n")
+print(chisq.test(x = observes, p = prob_theo))
+```
+
+\newpage
+
+# Exercice 7 — AFC : Cas 1
+
+## Partie 1 : Introduction
+
+```{r ex7-chargement}
+donnees2_raw <- read.table("donnees2.txt", header = TRUE, row.names = 1)
+donnees2 <- donnees2_raw[-nrow(donnees2_raw), -ncol(donnees2_raw)]
+cat("Tableau de contingence :\n"); print(donnees2)
+```
+
+### Question 1 : Pourcentages
+
+```{r ex7-pourcentages}
+total_votes <- sum(donnees2)
+cat("Total votes :", total_votes, "\n\n")
+
+pct_qual <- prop.table(colSums(donnees2)) * 100
+cat("% par qualité :\n"); print(round(pct_qual, 2))
+
+pct_prof <- prop.table(rowSums(donnees2)) * 100
+cat("\n% par profession :\n"); print(round(pct_prof, 2))
+```
+
+### Question 2 : Sondés et proportions
+
+```{r ex7-q2}
+cat("Nombre de sondés :", total_votes / 3, "(3 choix par personne)\n\n")
+
+prop1 <- donnees2["EMPL", "honn"] / total_votes
+cat("Proportion EMPL×honn / total :", round(prop1*100, 2), "%\n")
+
+prop2 <- donnees2["EMPL", "honn"] / sum(donnees2[, "honn"])
+cat("Proportion EMPL parmi honn :", round(prop2*100, 2), "%\n")
+```
+
+## Partie 2 : AFC
+
+```{r ex7-afc, fig.height=5}
+library(FactoMineR); library(factoextra)
+res.ca <- CA(donnees2, graph = FALSE)
+
+cat("Valeurs propres :\n")
+print(round(res.ca$eig, 4))
+fviz_eig(res.ca, addlabels = TRUE, main = "Valeurs propres — AFC")
+```
+
+### Question 3 : Pourquoi 7 valeurs propres ?
+
+```{r ex7-q3}
+cat("min(I-1, J-1) = min(", nrow(donnees2)-1, ",", ncol(donnees2)-1, ") = 7\n")
+```
+
+### Question 4 : Modalités définissant les axes
+
+```{r ex7-q4}
+cat("Contributions lignes :\n")
+knitr::kable(round(res.ca$row$contrib[, 1:2], 2), col.names = c("Axe 1 %", "Axe 2 %"))
+
+cat("\nContributions colonnes :\n")
+knitr::kable(round(res.ca$col$contrib[, 1:2], 2), col.names = c("Axe 1 %", "Axe 2 %"))
+
+cat("\nAxe 1 : LIBE, UNIV (+) vs OUVR, PAYS (-) ; gene vs seri\n")
+cat("Axe 2 : PAYS ; gene, disc\n")
+```
+
+### Question 5 : Modalités mal représentées
+
+```{r ex7-q5}
+cos2_r <- res.ca$row$cos2[, 1] + res.ca$row$cos2[, 2]
+cos2_c <- res.ca$col$cos2[, 1] + res.ca$col$cos2[, 2]
+cat("Lignes mal représentées :", paste(names(cos2_r[cos2_r < 0.5]), collapse=", "), "\n")
+cat("Colonnes mal représentées :", paste(names(cos2_c[cos2_c < 0.5]), collapse=", "), "\n")
+```
+
+### Question 6 : Proximités
+
+```{r ex7-biplot, fig.height=7}
+fviz_ca_biplot(res.ca, repel = TRUE, col.row = "blue", col.col = "red",
+               title = "Biplot AFC — Professions et Qualités") + theme_minimal()
+
+cat("OUVR et PAYS proches => profils similaires (mêmes qualités valorisées)\n")
+cat("VEND et honn proches => vendeurs valorisent particulièrement l'honnêteté\n")
+```
+
+\newpage
+
+# Exercice 8 — AFC : Élection présidentielle 2007
+
+```{r ex8-chargement}
+data_elec <- read.csv("election 2007.csv", sep = ";", row.names = 1)
+premier_tour <- data_elec[rownames(data_elec) != "France", ]
+noms_reg <- rownames(premier_tour)
+premier_tour <- as.data.frame(lapply(premier_tour, as.numeric))
+rownames(premier_tour) <- noms_reg
+
+cat(nrow(premier_tour), "régions ×", ncol(premier_tour), "candidats\n")
+knitr::kable(round(premier_tour, 2), caption = "Résultats 1er tour 2007")
+```
+
+## Test du Chi-deux
+
+```{r ex8-chi2}
+chi2 <- chisq.test(premier_tour)
+cat("χ² =", round(chi2$statistic, 2), ", ddl =", chi2$parameter,
+    ", p =", format(chi2$p.value, scientific=TRUE), "\n")
+cat("=> Rejet de H0 : lien significatif régions/candidats => AFC justifiée\n")
+```
+
+## AFC
+
+```{r ex8-afc}
+afc_e <- CA(premier_tour, graph = FALSE)
+knitr::kable(round(afc_e$eig, 2),
+             col.names = c("VP", "% inertie", "% cumulé"),
+             caption = "Valeurs propres — Élection 2007")
+```
+
+```{r ex8-vp, fig.height=5}
+fviz_eig(afc_e, addlabels = TRUE, main = "Éboulis — Élection 2007")
+```
+
+```{r ex8-regions, fig.height=7}
+fviz_ca_row(afc_e, col.row = "cos2",
+            gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+            repel = TRUE, pointsize = 3,
+            title = "Carte des régions") + theme_minimal()
+```
+
+```{r ex8-candidats, fig.height=7}
+fviz_ca_col(afc_e, col.col = "cos2",
+            gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+            repel = TRUE, pointsize = 3,
+            title = "Carte des candidats") + theme_minimal()
+```
+
+```{r ex8-biplot, fig.height=8}
+fviz_ca_biplot(afc_e, col.row = "blue", col.col = "red",
+               repel = TRUE, pointsize = 3,
+               title = "Biplot — Régions et Candidats (1er tour 2007)") +
+  theme_minimal(base_size = 12)
+```
+
+```{r ex8-contrib}
+cat("Contributions régions :\n")
+knitr::kable(round(afc_e$row$contrib[, 1:2], 2), col.names = c("Dim1 %", "Dim2 %"))
+
+cat("\nContributions candidats :\n")
+knitr::kable(round(afc_e$col$contrib[, 1:2], 2), col.names = c("Dim1 %", "Dim2 %"))
+
+cat("\nDim 1 : Le Pen, Laguiller, Nihous (droite) vs Royal, Bayrou, Voynet (gauche)\n")
+cat("  Régions : Corse, PACA, Alsace vs Bretagne, Pays-de-la-Loire, Midi-Pyrénées\n")
+cat("\nDim 2 : Nihous, Besancenot (haut) vs Sarkozy, Le Pen (bas)\n")
+cat("  Régions : Limousin, Poitou-Charentes vs Alsace, PACA, Corse\n")
+cat("\nConclusion : structuration géographique claire des préférences électorales.\n")
+```
